@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createWorker, type Worker as TesseractWorker } from "tesseract.js";
+import { createWorker, PSM, type Worker as TesseractWorker } from "tesseract.js";
 
 type LorcastCard = {
   name: string;
@@ -142,18 +142,28 @@ export default function ScanPage() {
     setProgress(0);
     setStatus("Preparing the card scanner…");
 
-    const prepared = prepareImage(source);
+    const cardCrop = cropToCardGuide(source);
+    const prepared = prepareImage(cardCrop);
     setCapturedImage(prepared.toDataURL("image/jpeg", 0.9));
 
     try {
       const worker = await getOcrWorker();
-      const result = await worker.recognize(prepared);
-
-      const text = result.data.text.trim();
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+      const titleResult = await worker.recognize(cropRegion(prepared, 0.03, 0.46, 0.94, 0.25));
+      let text = titleResult.data.text.trim();
       setOcrText(text);
-      setStatus("Text read. Looking for the exact Lorcana card…");
+      setStatus("Card title read. Looking for an exact match…");
 
-      const card = await identifyCard(text);
+      let card = await identifyCard(text);
+      if (!card) {
+        setStatus("Checking the card number and remaining text…");
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
+        const fullResult = await worker.recognize(prepared);
+        text = [text, fullResult.data.text.trim()].filter(Boolean).join("\n");
+        setOcrText(text);
+        card = await identifyCard(text);
+      }
+
       if (card) {
         setMatchedCard(card);
         setStatus("Match found. Confirm the card below.");
@@ -169,10 +179,40 @@ export default function ScanPage() {
     }
   }
 
+  function cropToCardGuide(source: HTMLCanvasElement | HTMLImageElement) {
+    const sourceWidth = source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
+    const sourceHeight = source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
+    let cropWidth = sourceWidth * 0.68;
+    let cropHeight = cropWidth * (88 / 63);
+
+    if (cropHeight > sourceHeight * 0.94) {
+      cropHeight = sourceHeight * 0.94;
+      cropWidth = cropHeight * (63 / 88);
+    }
+
+    const cropX = (sourceWidth - cropWidth) / 2;
+    const cropY = (sourceHeight - cropHeight) / 2;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(cropWidth));
+    canvas.height = Math.max(1, Math.round(cropHeight));
+    canvas.getContext("2d")?.drawImage(
+      source,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
+    return canvas;
+  }
+
   function prepareImage(source: HTMLCanvasElement | HTMLImageElement) {
     const sourceWidth = source instanceof HTMLCanvasElement ? source.width : source.naturalWidth;
     const sourceHeight = source instanceof HTMLCanvasElement ? source.height : source.naturalHeight;
-    const scale = Math.min(1, 1600 / Math.max(sourceWidth, sourceHeight));
+    const scale = Math.min(2.5, 1800 / Math.max(sourceWidth, sourceHeight));
     const canvas = document.createElement("canvas");
     canvas.width = Math.max(1, Math.round(sourceWidth * scale));
     canvas.height = Math.max(1, Math.round(sourceHeight * scale));
@@ -183,12 +223,35 @@ export default function ScanPage() {
     const image = context.getImageData(0, 0, canvas.width, canvas.height);
     for (let index = 0; index < image.data.length; index += 4) {
       const grey = 0.299 * image.data[index] + 0.587 * image.data[index + 1] + 0.114 * image.data[index + 2];
-      const boosted = grey < 145 ? Math.max(0, grey * 0.72) : Math.min(255, grey * 1.12);
+      const boosted = Math.max(0, Math.min(255, (grey - 128) * 1.25 + 128));
       image.data[index] = boosted;
       image.data[index + 1] = boosted;
       image.data[index + 2] = boosted;
     }
     context.putImageData(image, 0, 0);
+    return canvas;
+  }
+
+  function cropRegion(source: HTMLCanvasElement, x: number, y: number, width: number, height: number) {
+    const sourceX = Math.round(source.width * x);
+    const sourceY = Math.round(source.height * y);
+    const sourceRegionWidth = Math.round(source.width * width);
+    const sourceRegionHeight = Math.round(source.height * height);
+    const canvas = document.createElement("canvas");
+    const scale = Math.max(1, 1400 / sourceRegionWidth);
+    canvas.width = Math.round(sourceRegionWidth * scale);
+    canvas.height = Math.round(sourceRegionHeight * scale);
+    canvas.getContext("2d")?.drawImage(
+      source,
+      sourceX,
+      sourceY,
+      sourceRegionWidth,
+      sourceRegionHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
     return canvas;
   }
 
@@ -204,11 +267,12 @@ export default function ScanPage() {
       if (response.ok) return response.json();
     }
 
-    const candidates = text
+    const lines = text
       .split(/\n+/)
       .map((line) => line.replace(/[^A-Za-z0-9 '\-&]/g, " ").replace(/\s+/g, " ").trim())
       .filter((line) => /[A-Za-z]{3}/.test(line) && line.length < 55)
-      .slice(0, 5);
+      .slice(0, 6);
+    const candidates = [lines.slice(0, 2).join(" "), ...lines].filter(Boolean);
 
     for (const query of candidates) {
       const response = await fetch(`/api/cards?q=${encodeURIComponent(query)}`);
