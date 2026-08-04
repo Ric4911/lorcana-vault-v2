@@ -15,6 +15,8 @@ type Card = {
   value: number;
 };
 
+type PendingCard = Pick<Card, "name" | "set" | "number">;
+
 export default function Home() {
   const [cards, setCards] = useState<Card[]>([]);
   const [name, setName] = useState("");
@@ -28,10 +30,25 @@ export default function Home() {
   const [value, setValue] = useState(0);
   const [search, setSearch] = useState("");
 
+  /* Loading device-only localStorage after hydration requires this one state-setting effect. */
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const saved = localStorage.getItem("lorcanaCards");
     if (saved) setCards(JSON.parse(saved));
+
+    const pending = localStorage.getItem("lorcanaPendingCard");
+    if (pending) {
+      try {
+        const scanned: PendingCard = JSON.parse(pending);
+        setName(scanned.name || "");
+        setSet(scanned.set || "");
+        setNumber(scanned.number || "");
+      } finally {
+        localStorage.removeItem("lorcanaPendingCard");
+      }
+    }
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     localStorage.setItem("lorcanaCards", JSON.stringify(cards));
