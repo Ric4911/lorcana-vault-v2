@@ -6,6 +6,7 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 - Scan cards with the iPhone camera or a saved photo
 - Match recognised cards against the Lorcast card database
 - Rapid Scan buttons for adding Normal or Foil cards without leaving the camera
+- Scan a standard 3×3 binder page and add up to nine matched cards in one batch
 
 ## Getting Started
 
