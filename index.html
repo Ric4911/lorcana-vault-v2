@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#101827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Lorcana Vault" />
+  <link rel="manifest" href="manifest.json" />
+  <title>Lorcana Vault</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <p class="eyebrow">RA19</p>
+        <h1>Lorcana Vault</h1>
+      </div>
+      <button id="installBtn" class="ghost hidden">Install</button>
+    </header>
+
+    <section class="stats">
+      <article><span id="totalCards">0</span><small>Total cards</small></article>
+      <article><span id="uniqueCards">0</span><small>Unique</small></article>
+      <article><span id="totalValue">£0.00</span><small>Collection value</small></article>
+    </section>
+
+    <nav class="tabs">
+      <button class="active" data-tab="scan">Scan</button>
+      <button data-tab="add">Add</button>
+      <button data-tab="collection">Collection</button>
+      <button data-tab="analytics">Value</button>
+      <button data-tab="tools">Tools</button>
+    </nav>
+
+    <main>
+      <section id="scan" class="panel active">
+        <h2>Camera scanner</h2>
+        <p class="muted">Keep the full card inside the guide, use good light, then scan. You always confirm the match before saving.</p>
+        <div class="cameraBox">
+          <video id="video" playsinline autoplay muted></video>
+          <canvas id="snapshot" class="hidden"></canvas>
+          <div class="scanGuide" aria-hidden="true"></div>
+        </div>
+        <div class="row">
+          <button id="startCamera">Start camera</button>
+          <button id="capture" disabled>Scan card</button>
+        </div>
+        <label class="fileLabel">Or choose a card photo<input id="cardPhoto" type="file" accept="image/*" capture="environment" /></label>
+        <div id="scanStatus" class="scanStatus muted" role="status" aria-live="polite">Camera not started.</div>
+        <progress id="scanProgress" class="hidden" max="1" value="0"></progress>
+        <article id="scanMatch" class="match hidden">
+          <img id="matchImage" alt="Matched Lorcana card" />
+          <div><strong id="matchName"></strong><span id="matchMeta" class="meta"></span></div>
+        </article>
+        <textarea id="ocrText" placeholder="Recognised text appears here. You can paste/type card text too."></textarea>
+        <button id="parseText" class="wide">Use result in Add form</button>
+      </section>
+
+      <section id="add" class="panel">
+        <h2>Add / update card</h2>
+        <form id="cardForm">
+          <label>Card name<input id="name" required placeholder="Elsa - Spirit of Winter" /></label>
+          <label>Set<input id="set" placeholder="Rise of the Floodborn" /></label>
+          <div class="grid2">
+            <label>Card no.<input id="number" placeholder="42/204" /></label>
+            <label>Rarity<select id="rarity"><option></option><option>Common</option><option>Uncommon</option><option>Rare</option><option>Super Rare</option><option>Legendary</option><option>Enchanted</option><option>Promo</option></select></label>
+          </div>
+          <div class="grid2">
+            <label>Ink<input id="ink" placeholder="Ruby, Steel..." /></label>
+            <label>Type<input id="type" placeholder="Character, Action..." /></label>
+          </div>
+          <div class="grid3">
+            <label>Quantity<input id="qty" type="number" min="1" value="1" /></label>
+            <label>Foil qty<input id="foilQty" type="number" min="0" value="0" /></label>
+            <label>Price each (£)<input id="price" type="number" min="0" step="0.01" value="0" /></label>
+          </div>
+          <div class="grid2">
+            <label>Condition<select id="condition"><option>Near Mint</option><option>Excellent</option><option>Good</option><option>Played</option><option>Poor</option></select></label>
+            <label>Storage<select id="storage"><option>Binder</option><option>Box</option><option>Deck</option><option>Trade binder</option></select></label>
+          </div>
+          <label>Location<input id="location" placeholder="Binder 1 / Page 7 / Slot 3 OR Box A / Row 2" /></label>
+          <label class="check"><input id="trade" type="checkbox" /> Available for trade</label>
+          <button class="wide" type="submit">Save card</button>
+        </form>
+      </section>
+
+      <section id="collection" class="panel">
+        <h2>Collection</h2>
+        <input id="search" class="search" placeholder="Search name, set, rarity, location..." />
+        <div id="cards" class="cards"></div>
+      </section>
+
+      <section id="analytics" class="panel">
+        <h2>Value & sorting</h2>
+        <div id="analyticsContent"></div>
+      </section>
+
+      <section id="tools" class="panel">
+        <h2>Import / export</h2>
+        <p class="muted">CSV export is your backup. Keep copies while you build the collection.</p>
+        <div class="row"><button id="exportCsv">Export CSV</button><button id="downloadBackup">Download JSON</button></div>
+        <label class="fileLabel">Import CSV<input id="importCsv" type="file" accept=".csv,text/csv" /></label>
+        <label class="fileLabel">Restore JSON<input id="restoreJson" type="file" accept=".json,application/json" /></label>
+        <button id="clearAll" class="danger wide">Clear all cards</button>
+        <h3>Install on iPhone</h3>
+        <ol>
+          <li>Upload this folder to any HTTPS hosting, or use a free static host.</li>
+          <li>Open the site in Safari on iPhone.</li>
+          <li>Tap Share → Add to Home Screen.</li>
+        </ol>
+      </section>
+    </main>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
