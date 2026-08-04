@@ -1,5 +1,12 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Lorcana Vault features
+
+- Track cards, quantities, foils, storage and collection value in the browser
+- Scan cards with the iPhone camera or a saved photo
+- Match recognised cards against the Lorcast card database
+- Rapid Scan buttons for adding Normal or Foil cards without leaving the camera
+
 ## Getting Started
 
 First, run the development server:

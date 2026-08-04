@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createWorker } from "tesseract.js";
+import { createWorker, type Worker as TesseractWorker } from "tesseract.js";
 
 type LorcastCard = {
   name: string;
@@ -22,11 +22,24 @@ type PendingCard = {
   number: string;
 };
 
+type StoredCard = PendingCard & {
+  id: string;
+  quantity: number;
+  foil: number;
+  condition: string;
+  binder: string;
+  box: string;
+  value: number;
+};
+
 export default function ScanPage() {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const workerRef = useRef<TesseractWorker | null>(null);
+  const workerPromiseRef = useRef<Promise<TesseractWorker> | null>(null);
+  const savingRef = useRef(false);
 
   const [cameraOn, setCameraOn] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -35,11 +48,40 @@ export default function ScanPage() {
   const [status, setStatus] = useState("Start the camera or choose a card photo.");
   const [progress, setProgress] = useState(0);
   const [scanning, setScanning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [sessionAdded, setSessionAdded] = useState(0);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    return () => streamRef.current?.getTracks().forEach((track) => track.stop());
+    return () => {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (workerRef.current) void workerRef.current.terminate();
+    };
   }, []);
+
+  async function getOcrWorker() {
+    if (workerRef.current) return workerRef.current;
+    if (workerPromiseRef.current) return workerPromiseRef.current;
+
+    workerPromiseRef.current = createWorker("eng", 1, {
+      logger: (message) => {
+        if (message.status === "recognizing text") {
+          const nextProgress = Math.round((message.progress || 0) * 100);
+          setProgress(nextProgress);
+          setStatus(`Reading card… ${nextProgress}%`);
+        }
+      },
+    }).then((worker) => {
+      workerRef.current = worker;
+      workerPromiseRef.current = null;
+      return worker;
+    }).catch((workerError) => {
+      workerPromiseRef.current = null;
+      throw workerError;
+    });
+
+    return workerPromiseRef.current;
+  }
 
   async function startCamera() {
     try {
@@ -104,17 +146,8 @@ export default function ScanPage() {
     setCapturedImage(prepared.toDataURL("image/jpeg", 0.9));
 
     try {
-      const worker = await createWorker("eng", 1, {
-        logger: (message) => {
-          if (message.status === "recognizing text") {
-            const nextProgress = Math.round((message.progress || 0) * 100);
-            setProgress(nextProgress);
-            setStatus(`Reading card… ${nextProgress}%`);
-          }
-        },
-      });
+      const worker = await getOcrWorker();
       const result = await worker.recognize(prepared);
-      await worker.terminate();
 
       const text = result.data.text.trim();
       setOcrText(text);
@@ -201,12 +234,71 @@ export default function ScanPage() {
     router.push("/");
   }
 
+  function addRapidCard(isFoil: boolean) {
+    if (!matchedCard || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    setError("");
+
+    try {
+      const name = [matchedCard.name, matchedCard.version].filter(Boolean).join(" - ");
+      const set = matchedCard.set.name;
+      const number = matchedCard.collector_number;
+      const saved = localStorage.getItem("lorcanaCards");
+      const cards: StoredCard[] = saved ? JSON.parse(saved) : [];
+      const existing = cards.find(
+        (card) => card.name === name && card.set === set && card.number === number,
+      );
+
+      if (existing) {
+        existing.quantity = Number(existing.quantity || 0) + 1;
+        if (isFoil) existing.foil = Number(existing.foil || 0) + 1;
+      } else {
+        cards.unshift({
+          id: crypto.randomUUID(),
+          name,
+          set,
+          number,
+          quantity: 1,
+          foil: isFoil ? 1 : 0,
+          condition: "Near Mint",
+          binder: "",
+          box: "",
+          value: 0,
+        });
+      }
+
+      localStorage.setItem("lorcanaCards", JSON.stringify(cards));
+      setSessionAdded((count) => count + 1);
+      setMatchedCard(null);
+      setCapturedImage(null);
+      setOcrText("");
+      setProgress(0);
+      setStatus(`${isFoil ? "Foil" : "Normal"} ${name} saved. Position the next card and tap Scan Card.`);
+      navigator.vibrate?.(50);
+    } catch {
+      setError("The card could not be saved. Please use Review details instead.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-6">
       <div className="mx-auto max-w-3xl">
         <Link href="/" className="text-lg text-yellow-400">← Back to Vault</Link>
-        <h1 className="mt-6 text-4xl font-bold sm:text-5xl">📷 Scan Cards</h1>
-        <p className="mt-3 text-slate-400">Scan a card, confirm the match, then add it to your vault.</p>
+        <div className="mt-6 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-widest text-green-400">Rapid Scan</p>
+            <h1 className="text-4xl font-bold sm:text-5xl">📷 Scan Cards</h1>
+          </div>
+          <div className="rounded-xl bg-slate-900 px-4 py-3 text-center">
+            <strong className="block text-2xl text-yellow-400">{sessionAdded}</strong>
+            <span className="text-xs text-slate-400">Added now</span>
+          </div>
+        </div>
+        <p className="mt-3 text-slate-400">Scan, confirm Normal or Foil, then move straight to the next card.</p>
 
         <section className="mt-6 rounded-2xl bg-slate-900 p-4 sm:p-5">
           <div className="relative overflow-hidden rounded-xl bg-black">
@@ -215,17 +307,17 @@ export default function ScanPage() {
           </div>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button onClick={startCamera} disabled={scanning} className="rounded-xl bg-slate-700 px-6 py-4 font-bold disabled:opacity-50">
+            <button onClick={startCamera} disabled={scanning || saving} className="rounded-xl bg-slate-700 px-6 py-4 font-bold disabled:opacity-50">
               {cameraOn ? "Restart Camera" : "Start Camera"}
             </button>
-            <button onClick={captureCard} disabled={!cameraOn || scanning} className="rounded-xl bg-yellow-400 px-6 py-4 font-bold text-black disabled:opacity-50">
+            <button onClick={captureCard} disabled={!cameraOn || scanning || saving || Boolean(matchedCard)} className="rounded-xl bg-yellow-400 px-6 py-4 font-bold text-black disabled:opacity-50">
               {scanning ? "Scanning…" : "Scan Card"}
             </button>
           </div>
 
           <label className="mt-3 block cursor-pointer rounded-xl bg-slate-800 px-6 py-4 text-center font-bold">
             Or choose a card photo
-            <input type="file" accept="image/*" capture="environment" className="hidden" disabled={scanning} onChange={(event) => choosePhoto(event.target.files?.[0])} />
+            <input type="file" accept="image/*" capture="environment" className="hidden" disabled={scanning || saving} onChange={(event) => { void choosePhoto(event.target.files?.[0]); event.currentTarget.value = ""; }} />
           </label>
 
           <p className="mt-4 text-sm text-slate-300" role="status" aria-live="polite">{status}</p>
@@ -240,7 +332,11 @@ export default function ScanPage() {
               <div className="self-center">
                 <h2 className="text-xl font-bold">{[matchedCard.name, matchedCard.version].filter(Boolean).join(" — ")}</h2>
                 <p className="mt-1 text-sm text-slate-400">{matchedCard.set.name} · #{matchedCard.collector_number} · {matchedCard.rarity.replace("_", " ")}</p>
-                <button onClick={useMatchedCard} className="mt-4 rounded-xl bg-green-400 px-5 py-3 font-bold text-slate-950">Use This Card</button>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button onClick={() => addRapidCard(false)} disabled={saving} className="rounded-xl bg-green-400 px-3 py-3 font-bold text-slate-950 disabled:opacity-50">Normal +1</button>
+                  <button onClick={() => addRapidCard(true)} disabled={saving} className="rounded-xl bg-sky-400 px-3 py-3 font-bold text-slate-950 disabled:opacity-50">Foil +1</button>
+                </div>
+                <button onClick={useMatchedCard} disabled={saving} className="mt-2 w-full rounded-xl bg-slate-700 px-3 py-3 font-semibold text-white disabled:opacity-50">Review details</button>
               </div>
             </article>
           )}
