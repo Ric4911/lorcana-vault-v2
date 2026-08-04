@@ -156,7 +156,15 @@ export default function ScanPage() {
 
       let card = await identifyCard(text);
       if (!card) {
-        setStatus("Checking the card number and remaining text…");
+        setStatus("Checking the collector number and promo code…");
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        const collectorResult = await worker.recognize(cropRegion(prepared, 0.01, 0.82, 0.98, 0.18));
+        text = [text, collectorResult.data.text.trim()].filter(Boolean).join("\n");
+        setOcrText(text);
+        card = await identifyCard(text);
+      }
+      if (!card) {
+        setStatus("Checking the remaining card text…");
         await worker.setParameters({ tessedit_pageseg_mode: PSM.SPARSE_TEXT });
         const fullResult = await worker.recognize(prepared);
         text = [text, fullResult.data.text.trim()].filter(Boolean).join("\n");
@@ -257,13 +265,18 @@ export default function ScanPage() {
 
   async function identifyCard(text: string): Promise<LorcastCard | null> {
     const normalized = text.replace(/[|Il]/g, "1");
-    const numberMatch = normalized.match(/(\d{1,3}[A-Za-z]?)\s*\/\s*(\d{2,3})/);
+    const numberMatch = normalized.match(/(\d{1,3}[A-Za-z]{0,3})\s*\/\s*([A-Za-z]{1,3}\s*\d{0,2}|\d{2,3})/i);
+    const denominator = numberMatch?.[2].replace(/\s+/g, "") || "";
+    const printedPromoCode = /[A-Za-z]/.test(denominator) ? normalizeSetCode(denominator) : null;
+    const loosePromoCode = normalized.match(/\b(P\s*D?\s*\d{1,2}|C\s*P)\b/i)?.[1];
+    const promoSetCode = printedPromoCode || (loosePromoCode ? normalizeSetCode(loosePromoCode) : null);
     const setMatch =
       normalized.match(/(?:EN|FR|DE|IT)\s*[-:]?\s*(\d{1,2})\b/i) ||
       normalized.match(/\b(\d{1,2})\s*(?:EN|FR|DE|IT)\b/i);
+    const targetSetCode = promoSetCode || setMatch?.[1] || null;
 
-    if (numberMatch && setMatch) {
-      const response = await fetch(`/api/cards?set=${encodeURIComponent(setMatch[1])}&number=${encodeURIComponent(numberMatch[1])}`);
+    if (numberMatch && targetSetCode) {
+      const response = await fetch(`/api/cards?set=${encodeURIComponent(targetSetCode)}&number=${encodeURIComponent(numberMatch[1])}`);
       if (response.ok) return response.json();
     }
 
@@ -279,12 +292,25 @@ export default function ScanPage() {
       if (!response.ok) continue;
       const cards: LorcastCard[] = await response.json();
       const exactNumber = numberMatch && cards.find(
-        (card) => card.collector_number.toLowerCase() === numberMatch[1].toLowerCase(),
+        (card) =>
+          card.collector_number.toLowerCase() === numberMatch[1].toLowerCase() &&
+          (!targetSetCode || card.set.code.toLowerCase() === targetSetCode.toLowerCase()),
       );
       if (exactNumber) return exactNumber;
+      if (promoSetCode) {
+        const promoPrints = cards.filter(
+          (card) => card.set.code.toLowerCase() === promoSetCode.toLowerCase(),
+        );
+        if (promoPrints.length === 1) return promoPrints[0];
+      }
       if (cards.length === 1) return cards[0];
     }
     return null;
+  }
+
+  function normalizeSetCode(code: string) {
+    const compact = code.replace(/\s+/g, "").toUpperCase();
+    return compact === "CP" ? "cp" : compact;
   }
 
   function useMatchedCard() {
